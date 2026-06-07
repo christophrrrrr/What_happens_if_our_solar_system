@@ -43,9 +43,9 @@ export function Sidebar({ body, stats, originalMass, onMassChange, onVelChange, 
   const massMultiplier = originalMass > 0 ? body.mass / originalMass : 1
 
   return (
-    <div className="w-64 bg-gray-950 border-l border-gray-800 flex flex-col text-sm overflow-y-auto flex-shrink-0">
+    <div className="w-64 bg-gray-950/95 backdrop-blur border border-gray-700 rounded-xl shadow-2xl flex flex-col text-sm overflow-y-auto max-h-[calc(100vh-120px)]">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 rounded-t-xl">
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: body.color === '#111111' ? '#555' : body.color }} />
           <span className="font-semibold text-white">{body.name}</span>

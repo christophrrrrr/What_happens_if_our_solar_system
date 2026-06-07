@@ -289,37 +289,43 @@ export default function App() {
         onFitView={sim.fitView}
       />
 
-      <div className="flex flex-1 min-h-0">
-        {/* Canvas area */}
-        <div
-          ref={containerRef}
-          className="flex-1 relative"
-          style={{ cursor: addingBody ? 'crosshair' : 'default' }}
-        >
-          <canvas
-            ref={canvasRef}
-            onMouseDown={onMouseDown}
-            onMouseMove={onMouseMove}
-            onMouseUp={onMouseUp}
-            onDoubleClick={onDoubleClick}
-          />
-          <EventLog events={sim.events} />
-        </div>
+      {/* Canvas fills the full remaining space; inspector floats on top */}
+      <div
+        ref={containerRef}
+        className="flex-1 relative min-h-0"
+        style={{ cursor: addingBody ? 'crosshair' : 'default' }}
+      >
+        <canvas
+          ref={canvasRef}
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onDoubleClick={onDoubleClick}
+        />
 
-        {/* Sidebar */}
+        <EventLog events={sim.events} />
+
+        {/* Planet inspector — floating overlay, top-right of canvas */}
         {selectedBody && orbitalStats && (
-          <Sidebar
-            body={selectedBody}
-            allBodies={sim.simRef.current.bodies}
-            stats={orbitalStats}
-            originalMass={originalMasses.get(selectedBody.id) ?? selectedBody.mass}
-            onMassChange={mass => sim.modifyBody(selectedBody.id, { mass })}
-            onVelChange={(vx, vy) => sim.modifyBody(selectedBody.id, { vel: { x: vx, y: vy } })}
-            onCircularOrbit={handleCircularOrbit}
-            onRemove={() => sim.removeBody(selectedBody.id)}
-            onClose={() => sim.setSelectedId(null)}
-            onZoomTo={() => sim.zoomTo(selectedBody.pos.x, selectedBody.pos.y, selectedBody.id === 'moon' ? 40000 : 3000)}
-          />
+          <div
+            className="absolute top-2 right-2 z-20"
+            onMouseDown={e => e.stopPropagation()}
+            onMouseMove={e => e.stopPropagation()}
+            onMouseUp={e => e.stopPropagation()}
+          >
+            <Sidebar
+              body={selectedBody}
+              allBodies={sim.simRef.current.bodies}
+              stats={orbitalStats}
+              originalMass={originalMasses.get(selectedBody.id) ?? selectedBody.mass}
+              onMassChange={mass => sim.modifyBody(selectedBody.id, { mass })}
+              onVelChange={(vx, vy) => sim.modifyBody(selectedBody.id, { vel: { x: vx, y: vy } })}
+              onCircularOrbit={handleCircularOrbit}
+              onRemove={() => sim.removeBody(selectedBody.id)}
+              onClose={() => sim.setSelectedId(null)}
+              onZoomTo={() => sim.zoomTo(selectedBody.pos.x, selectedBody.pos.y, selectedBody.id === 'moon' ? 40000 : 3000)}
+            />
+          </div>
         )}
       </div>
     </div>

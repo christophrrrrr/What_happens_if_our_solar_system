@@ -104,6 +104,12 @@ export function renderFrame(
       drawVelocityArrow(ctx, b, cam, w, h)
     }
   }
+
+  // Controls hint — bottom-right corner
+  ctx.font = '11px Inter, system-ui, sans-serif'
+  ctx.fillStyle = 'rgba(255,255,255,0.28)'
+  ctx.textAlign = 'right'
+  ctx.fillText('Scroll to zoom  ·  Drag to pan  ·  Double-click a planet to focus', w - 14, h - 12)
 }
 
 function drawTrail(ctx: CanvasRenderingContext2D, b: Body, cam: Camera, w: number, h: number) {

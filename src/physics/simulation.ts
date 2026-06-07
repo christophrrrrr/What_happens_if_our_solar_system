@@ -26,37 +26,48 @@ export function createSimulation(initialBodies: Body[]): SimState {
   }
 }
 
-// Steps per render frame — high enough for stability at each timeScale
-const STEPS_PER_FRAME = 80
+// Maximum safe timestep per sub-step — must be well below the Moon's orbital period
+// (Moon period ≈ 0.075 yr). 0.004 yr ≈ 1.5 days gives ~18 steps per Moon orbit.
+const MAX_DT_STEP = 0.004  // years
 
 export function stepSimulation(state: SimState, acc: Vec2[], dtReal: number, pauseOnEvent: boolean): { newAcc: Vec2[]; fired: boolean } {
   if (state.paused) return { newAcc: acc, fired: false }
 
-  const dtSim = state.timeScale * dtReal        // years of simulation per real second
-  const dtStep = dtSim / STEPS_PER_FRAME         // years per sub-step
+  const dtSim = state.timeScale * dtReal        // years of simulation this frame
+  // Dynamically scale step count so dtStep never exceeds MAX_DT_STEP.
+  // At 1×–10K× this is 80 steps. At 1M× this reaches ~4000 steps — still
+  // fast (~0.3ms) for 12 bodies with O(N²) force calculation.
+  const steps = Math.max(80, Math.ceil(dtSim / MAX_DT_STEP))
+  const dtStep = dtSim / steps
 
   let newAcc = acc
   let eventFired = false
 
-  for (let s = 0; s < STEPS_PER_FRAME; s++) {
+  // Trail sampling interval: aim for ~200 samples per frame regardless of step count
+  const trailInterval = Math.max(1, Math.floor(steps / 200))
+
+  for (let s = 0; s < steps; s++) {
     newAcc = leapfrogStep(state.bodies, newAcc, dtStep)
     state.time += dtStep
 
-    // Sample trail every few steps to keep resolution reasonable
-    if (s % 4 === 0) {
+    // Sample trail at reduced rate to keep buffer useful
+    if (s % trailInterval === 0) {
       for (const b of state.bodies) {
         if (!b.ejected) pushTrail(b, b.pos.x, b.pos.y)
       }
     }
 
-    const fired = detectEvents(state.bodies, state.time)
-    if (fired.length > 0) {
-      state.events.unshift(...fired)
-      if (state.events.length > EVENT_LOG_MAX) state.events.length = EVENT_LOG_MAX
-      if (pauseOnEvent) {
-        state.paused = true
-        eventFired = true
-        break
+    // Check events every ~80 steps to avoid event-detection overhead at 4000 steps
+    if (s % 80 === 0) {
+      const fired = detectEvents(state.bodies, state.time)
+      if (fired.length > 0) {
+        state.events.unshift(...fired)
+        if (state.events.length > EVENT_LOG_MAX) state.events.length = EVENT_LOG_MAX
+        if (pauseOnEvent) {
+          state.paused = true
+          eventFired = true
+          break
+        }
       }
     }
   }

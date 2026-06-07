@@ -25,7 +25,11 @@ export default function App() {
   const draggingVelRef = useRef(false)
   const dragStartRef = useRef<[number, number] | null>(null)
 
-  // Fit on mount
+  // Size the canvas on mount and when the browser window is resized.
+  // Does NOT call fitView on resize — that would reset the user's camera
+  // every time setSimYear triggers a re-render (~4×/sec while running).
+  // Initial camera is set via requestAnimationFrame so flex layout has
+  // resolved and container.clientWidth/Height are non-zero.
   useEffect(() => {
     const resize = () => {
       const canvas = canvasRef.current
@@ -33,12 +37,19 @@ export default function App() {
       if (!canvas || !container) return
       canvas.width = container.clientWidth
       canvas.height = container.clientHeight
-      sim.fitView()
+      // camera is NOT reset here — user controls zoom/pan after first load
     }
-    resize()
+    // Defer initial sizing + camera fit to after layout paint
+    const rafId = requestAnimationFrame(() => {
+      resize()
+      sim.reset('default') // sizes canvas then fits camera to inner solar system
+    })
     window.addEventListener('resize', resize)
-    return () => window.removeEventListener('resize', resize)
-  }, [sim])
+    return () => {
+      cancelAnimationFrame(rafId)
+      window.removeEventListener('resize', resize)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wheel zoom
   useEffect(() => {

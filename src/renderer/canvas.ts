@@ -1,6 +1,7 @@
-import { Body } from '../physics/types'
+import { Body, Explosion } from '../physics/types'
 import { Camera, worldToScreen } from './camera'
 import { MOON_RENDER_THRESHOLD_AU_PX } from '../physics/constants'
+import type { Vec2 } from '../physics/types'
 
 const AU_PX_THRESHOLD = MOON_RENDER_THRESHOLD_AU_PX
 
@@ -18,6 +19,13 @@ export interface RenderOptions {
   showVelocityArrows: boolean
   addingBody: boolean
   auPerPixel: number
+  predictedOrbit: Vec2[] | null
+  selectedColor: string
+  explosions: Explosion[]
+  nowMs: number
+  // Ghost body during add-drag
+  ghostWorldPos: { x: number; y: number } | null
+  ghostScreenDrag: { x: number; y: number } | null // current mouse screen pos
 }
 
 export function renderFrame(
@@ -43,7 +51,12 @@ export function renderFrame(
 
   const auPerPx = 1 / cam.scale
 
-  // Draw trails first (behind bodies)
+  // Draw predicted orbit FIRST (behind everything)
+  if (opts.predictedOrbit && opts.predictedOrbit.length > 1) {
+    drawPredictedOrbit(ctx, opts.predictedOrbit, cam, w, h, opts.selectedColor)
+  }
+
+  // Draw trails (behind bodies)
   for (const b of bodies) {
     if (b.ejected) continue
     if (b.id === 'moon' && auPerPx > AU_PX_THRESHOLD) continue
@@ -54,114 +67,246 @@ export function renderFrame(
   for (const b of bodies) {
     if (b.ejected) continue
     if (b.id === 'moon' && auPerPx > AU_PX_THRESHOLD) continue
+    drawBody(ctx, b, cam, w, h, opts.selectedId, opts.showVelocityArrows)
+  }
 
-    const [sx, sy] = worldToScreen(cam, b.pos.x, b.pos.y, w, h)
-    const r = Math.max(b.visualRadius, 2)
-    const isSelected = b.id === opts.selectedId
-
-    // Glow for Sun and massive bodies
-    if (b.isStarOrMassive) {
-      const grd = ctx.createRadialGradient(sx, sy, r * 0.5, sx, sy, r * 3)
-      grd.addColorStop(0, b.color + '40')
-      grd.addColorStop(1, 'transparent')
-      ctx.fillStyle = grd
-      ctx.beginPath()
-      ctx.arc(sx, sy, r * 3, 0, Math.PI * 2)
-      ctx.fill()
-    }
-
-    // Saturn's rings (drawn behind body)
-    if (b.id === 'saturn') {
-      ctx.beginPath()
-      ctx.ellipse(sx, sy, r * 2.4, r * 0.7, 0.3, 0, Math.PI * 2)
-      ctx.strokeStyle = 'rgba(200,185,120,0.55)'
-      ctx.lineWidth = r * 0.9
-      ctx.stroke()
-    }
-
-    // Body circle
+  // Draw ghost body (add-body drag preview)
+  if (opts.ghostWorldPos) {
+    const [gx, gy] = worldToScreen(cam, opts.ghostWorldPos.x, opts.ghostWorldPos.y, w, h)
+    // Ghost circle
     ctx.beginPath()
-    ctx.arc(sx, sy, r, 0, Math.PI * 2)
-    ctx.fillStyle = b.color
+    ctx.arc(gx, gy, 8, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(100,180,255,0.25)'
     ctx.fill()
+    ctx.strokeStyle = 'rgba(100,180,255,0.8)'
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([4, 4])
+    ctx.stroke()
+    ctx.setLineDash([])
 
-    // Selection ring
-    if (isSelected) {
+    // Velocity arrow to mouse
+    if (opts.ghostScreenDrag) {
+      const mx = opts.ghostScreenDrag.x
+      const my = opts.ghostScreenDrag.y
+      ctx.strokeStyle = 'rgba(255,220,50,0.85)'
+      ctx.lineWidth = 2
       ctx.beginPath()
-      ctx.arc(sx, sy, r + 5, 0, Math.PI * 2)
-      ctx.strokeStyle = 'rgba(255,255,255,0.8)'
-      ctx.lineWidth = 1.5
+      ctx.moveTo(gx, gy)
+      ctx.lineTo(mx, my)
       ctx.stroke()
-    }
+      const angle = Math.atan2(my - gy, mx - gx)
+      const head = 10
+      ctx.beginPath()
+      ctx.moveTo(mx, my)
+      ctx.lineTo(mx - head * Math.cos(angle - 0.45), my - head * Math.sin(angle - 0.45))
+      ctx.moveTo(mx, my)
+      ctx.lineTo(mx - head * Math.cos(angle + 0.45), my - head * Math.sin(angle + 0.45))
+      ctx.stroke()
 
-    // Label — skip tiny unlabelled bodies (not selected) to reduce clutter
-    if (isSelected || r >= 3) {
-      drawLabel(ctx, b.name, sx, sy + r + 14, isSelected)
-    }
-
-    // Velocity arrow for selected body
-    if (isSelected && opts.showVelocityArrows) {
-      drawVelocityArrow(ctx, b, cam, w, h)
+      // Speed label
+      const dx = (mx - gx), dy = (my - gy)
+      const speedAuYr = Math.sqrt(dx * dx + dy * dy) / 12
+      const speedKms = speedAuYr * 4.74047
+      ctx.font = '10px Inter, system-ui, sans-serif'
+      ctx.fillStyle = 'rgba(255,220,50,0.9)'
+      ctx.textAlign = 'center'
+      ctx.fillText(`${speedKms.toFixed(1)} km/s`, (gx + mx) / 2, (gy + my) / 2 - 8)
     }
   }
 
-  // Controls hint — bottom-right corner
+  // Draw explosions
+  drawExplosions(ctx, opts.explosions, cam, w, h, opts.nowMs)
+
+  // Controls hint
   ctx.font = '11px Inter, system-ui, sans-serif'
   ctx.fillStyle = 'rgba(255,255,255,0.28)'
   ctx.textAlign = 'right'
+  ctx.setLineDash([])
   ctx.fillText('Scroll to zoom  ·  Drag to pan  ·  Double-click a planet to focus', w - 14, h - 12)
 }
 
+// ─── Draw a single body ───────────────────────────────────────────────────────
+
+function drawBody(
+  ctx: CanvasRenderingContext2D,
+  b: Body,
+  cam: Camera,
+  w: number,
+  h: number,
+  selectedId: string | null,
+  showArrows: boolean,
+) {
+  const [sx, sy] = worldToScreen(cam, b.pos.x, b.pos.y, w, h)
+  const r = Math.max(b.visualRadius, 2)
+  const isSelected = b.id === selectedId
+  const isBlackHole = b.bodyType === 'black_hole'
+
+  // Black hole: accretion disk behind body
+  if (isBlackHole) {
+    // Outer accretion disk
+    ctx.save()
+    ctx.translate(sx, sy)
+    ctx.rotate(0.3)
+    ctx.beginPath()
+    ctx.ellipse(0, 0, r * 2.4, r * 0.65, 0, 0, Math.PI * 2)
+    ctx.strokeStyle = 'rgba(255,140,20,0.65)'
+    ctx.lineWidth = r * 1.1
+    ctx.stroke()
+    // Hot inner ring
+    ctx.beginPath()
+    ctx.ellipse(0, 0, r * 1.35, r * 0.36, 0, 0, Math.PI * 2)
+    ctx.strokeStyle = 'rgba(255,220,120,0.35)'
+    ctx.lineWidth = r * 0.5
+    ctx.stroke()
+    ctx.restore()
+  }
+
+  // Glow for Sun and massive bodies (not black holes)
+  if (b.isStarOrMassive && !isBlackHole) {
+    const grd = ctx.createRadialGradient(sx, sy, r * 0.5, sx, sy, r * 3)
+    grd.addColorStop(0, b.color + '40')
+    grd.addColorStop(1, 'transparent')
+    ctx.fillStyle = grd
+    ctx.beginPath()
+    ctx.arc(sx, sy, r * 3, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // Saturn's rings
+  if (b.id === 'saturn') {
+    ctx.beginPath()
+    ctx.ellipse(sx, sy, r * 2.4, r * 0.7, 0.3, 0, Math.PI * 2)
+    ctx.strokeStyle = 'rgba(200,185,120,0.55)'
+    ctx.lineWidth = r * 0.9
+    ctx.stroke()
+  }
+
+  // Body circle
+  ctx.beginPath()
+  ctx.arc(sx, sy, r, 0, Math.PI * 2)
+  ctx.fillStyle = isBlackHole ? '#050505' : b.color
+  ctx.fill()
+
+  // Selection ring
+  if (isSelected) {
+    ctx.beginPath()
+    ctx.arc(sx, sy, r + 5, 0, Math.PI * 2)
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)'
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([])
+    ctx.stroke()
+  }
+
+  // Label
+  if (isSelected || r >= 3) {
+    drawLabel(ctx, b.name, sx, sy + r + 14, isSelected)
+  }
+
+  // Velocity arrow
+  if (isSelected && showArrows) {
+    drawVelocityArrow(ctx, b, cam, w, h)
+  }
+}
+
+// ─── Trail ────────────────────────────────────────────────────────────────────
+
 function drawTrail(ctx: CanvasRenderingContext2D, b: Body, cam: Camera, w: number, h: number) {
   if (b.trailLen < 2) return
-
   const cap = b.trail.length
   ctx.beginPath()
   let started = false
-
   for (let i = 0; i < b.trailLen; i++) {
-    // Iterate from oldest to newest
     const idx = (b.trailHead - b.trailLen + i + cap) % cap
     const [sx, sy] = worldToScreen(cam, b.trail[idx].x, b.trail[idx].y, w, h)
-    if (!started) {
-      ctx.moveTo(sx, sy)
-      started = true
-    } else {
-      ctx.lineTo(sx, sy)
-    }
+    if (!started) { ctx.moveTo(sx, sy); started = true } else ctx.lineTo(sx, sy)
   }
-
-  const alpha = 0.55
-  ctx.strokeStyle = hexToRgba(b.color, alpha)
+  ctx.strokeStyle = hexToRgba(b.color === '#111111' ? '#555555' : b.color, 0.45)
   ctx.lineWidth = 1
+  ctx.setLineDash([])
   ctx.stroke()
 }
+
+// ─── Predicted orbit ghost ────────────────────────────────────────────────────
+
+function drawPredictedOrbit(ctx: CanvasRenderingContext2D, points: Vec2[], cam: Camera, w: number, h: number, color: string) {
+  if (points.length < 2) return
+  ctx.beginPath()
+  let started = false
+  for (const p of points) {
+    const [sx, sy] = worldToScreen(cam, p.x, p.y, w, h)
+    if (!started) { ctx.moveTo(sx, sy); started = true } else ctx.lineTo(sx, sy)
+  }
+  ctx.strokeStyle = hexToRgba(color, 0.28)
+  ctx.lineWidth = 1.2
+  ctx.setLineDash([7, 7])
+  ctx.stroke()
+  ctx.setLineDash([])
+}
+
+// ─── Explosions ───────────────────────────────────────────────────────────────
+
+function drawExplosions(ctx: CanvasRenderingContext2D, explosions: Explosion[], cam: Camera, w: number, h: number, nowMs: number) {
+  for (const ex of explosions) {
+    const t = (nowMs - ex.startMs) / ex.durationMs
+    if (t >= 1 || t < 0) continue
+    const [sx, sy] = worldToScreen(cam, ex.worldX, ex.worldY, w, h)
+    const ease = 1 - (1 - t) * (1 - t) // ease-out
+
+    // Bright core flash (early only)
+    if (t < 0.15) {
+      const flashAlpha = (0.15 - t) / 0.15 * 0.9
+      const grd = ctx.createRadialGradient(sx, sy, 0, sx, sy, 40)
+      grd.addColorStop(0, `rgba(255,255,255,${flashAlpha})`)
+      grd.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = grd
+      ctx.beginPath()
+      ctx.arc(sx, sy, 40, 0, Math.PI * 2)
+      ctx.fill()
+    }
+
+    // Outer ring
+    ctx.beginPath()
+    ctx.arc(sx, sy, ease * 90, 0, Math.PI * 2)
+    ctx.strokeStyle = hexToRgba(ex.color, (1 - t) * 0.75)
+    ctx.lineWidth = Math.max(1, 5 * (1 - t))
+    ctx.setLineDash([])
+    ctx.stroke()
+
+    // Inner ring (faster)
+    const t2 = Math.min(1, t * 1.8)
+    ctx.beginPath()
+    ctx.arc(sx, sy, t2 * 45, 0, Math.PI * 2)
+    ctx.strokeStyle = hexToRgba('#ffffff', (1 - t2) * 0.45)
+    ctx.lineWidth = 2
+    ctx.stroke()
+  }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function drawLabel(ctx: CanvasRenderingContext2D, name: string, x: number, y: number, selected: boolean) {
   ctx.font = selected ? 'bold 11px Inter, system-ui, sans-serif' : '10px Inter, system-ui, sans-serif'
   ctx.fillStyle = selected ? 'rgba(255,255,255,0.95)' : 'rgba(200,200,200,0.7)'
   ctx.textAlign = 'center'
+  ctx.setLineDash([])
   ctx.fillText(name, x, y)
 }
 
-const ARROW_SCALE = 12 // pixels per AU/yr
+export const ARROW_SCALE = 12 // pixels per AU/yr
 
 export function drawVelocityArrow(ctx: CanvasRenderingContext2D, b: Body, cam: Camera, w: number, h: number) {
   const [sx, sy] = worldToScreen(cam, b.pos.x, b.pos.y, w, h)
   const speed = Math.sqrt(b.vel.x * b.vel.x + b.vel.y * b.vel.y)
   if (speed < 1e-8) return
-
   const ex = sx + b.vel.x * ARROW_SCALE
   const ey = sy - b.vel.y * ARROW_SCALE
-
-  ctx.strokeStyle = 'rgba(255, 220, 50, 0.9)'
+  ctx.strokeStyle = 'rgba(255,220,50,0.9)'
   ctx.lineWidth = 1.5
+  ctx.setLineDash([])
   ctx.beginPath()
   ctx.moveTo(sx, sy)
   ctx.lineTo(ex, ey)
   ctx.stroke()
-
-  // Arrow head
   const angle = Math.atan2(sy - ey, ex - sx)
   const headLen = 8
   ctx.beginPath()

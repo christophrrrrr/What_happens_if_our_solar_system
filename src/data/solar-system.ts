@@ -1,4 +1,49 @@
-import { Body } from '../physics/types'
+import { Body, BodyPresetKey } from '../physics/types'
+
+// ─── Body presets for the "Add body" type picker ─────────────────────────────
+
+export type { BodyPresetKey }
+
+export const BODY_PRESETS: Record<BodyPresetKey, Omit<Body, 'id' | 'pos' | 'vel' | 'trail' | 'trailHead' | 'trailLen' | 'ejected'>> = {
+  planet: {
+    name: 'Planet', mass: 3e-6, visualRadius: 7, color: '#7ec8e3',
+    radius: 0.0003, isStarOrMassive: false, bodyType: 'planet',
+  },
+  gas_giant: {
+    name: 'Gas Giant', mass: 1e-3, visualRadius: 13, color: '#c88b3a',
+    radius: 0.002, isStarOrMassive: true, bodyType: 'gas_giant',
+  },
+  star: {
+    name: 'Star', mass: 1.0, visualRadius: 18, color: '#FDB813',
+    radius: 0.005, isStarOrMassive: true, bodyType: 'star',
+  },
+  black_hole: {
+    name: 'Black Hole', mass: 10, visualRadius: 14, color: '#111111',
+    radius: 0.006, isStarOrMassive: true, bodyType: 'black_hole',
+  },
+  comet: {
+    name: 'Comet', mass: 1e-10, visualRadius: 3, color: '#aaffee',
+    radius: 0.00002, isStarOrMassive: false, bodyType: 'comet',
+  },
+}
+
+export function makeBodyFromPreset(
+  preset: BodyPresetKey,
+  id: string,
+  pos: { x: number; y: number },
+  vel: { x: number; y: number },
+): Body {
+  return {
+    ...BODY_PRESETS[preset],
+    id,
+    pos: { ...pos },
+    vel: { ...vel },
+    trail: [],
+    trailHead: 0,
+    trailLen: 0,
+    ejected: false,
+  }
+}
 
 // Units: AU (position), AU/yr (velocity), solar masses (mass)
 // G = 4π² in these units. Epoch: J2000.0
@@ -94,7 +139,7 @@ export function makeSolarSystemBodies(): Body[] {
   return bodies
 }
 
-export type ScenarioId = 'default' | 'no-jupiter' | 'double-sun' | 'earth-at-mars' | 'rogue-planet'
+export type ScenarioId = 'default' | 'no-jupiter' | 'double-sun' | 'earth-at-mars' | 'rogue-planet' | 'sun-blackhole' | 'binary-star' | 'heavy-earth'
 
 export function makeScenario(id: ScenarioId): Body[] {
   const base = makeSolarSystemBodies()
@@ -139,6 +184,45 @@ export function makeScenario(id: ScenarioId): Body[] {
         trail: [], trailHead: 0, trailLen: 0,
       }
       return [...base, rogue]
+    }
+
+    case 'sun-blackhole': {
+      // Same mass as the Sun — planets keep orbiting exactly as before.
+      // Great "aha" moment: a black hole doesn't suck things in, gravity is unchanged.
+      const sun = base.find(b => b.id === 'sun')!
+      sun.color = '#111111'
+      sun.visualRadius = 14
+      sun.bodyType = 'black_hole'
+      sun.isStarOrMassive = true
+      return base
+    }
+
+    case 'binary-star': {
+      // Add a second star at ~8 AU in a roughly stable orbit.
+      // Over centuries, watch planet orbits go chaotic.
+      const o = orbit(8, 270)
+      const star2: Body = {
+        id: 'star2', name: 'Star B', mass: 0.8,
+        ...o,
+        radius: 0.005, visualRadius: 16, color: '#ff9966',
+        isStarOrMassive: true, bodyType: 'star',
+        ejected: false, trail: [], trailHead: 0, trailLen: 0,
+      }
+      // Boost the Sun's velocity to conserve momentum of the two-star barycenter
+      const sun = base.find(b => b.id === 'sun')!
+      sun.vel.x -= (0.8 * star2.vel.x) / 1.8
+      sun.vel.y -= (0.8 * star2.vel.y) / 1.8
+      return [...base, star2]
+    }
+
+    case 'heavy-earth': {
+      // Give Earth 317× its mass (= Jupiter mass) — Moon likely escapes,
+      // Venus and Mars orbits become perturbed.
+      const earth = base.find(b => b.id === 'earth')!
+      earth.mass = 9.548e-4  // Jupiter mass
+      earth.visualRadius = 14
+      earth.isStarOrMassive = true
+      return base
     }
 
     default:

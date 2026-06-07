@@ -3,8 +3,6 @@ import { Camera, worldToScreen } from './camera'
 import { MOON_RENDER_THRESHOLD_AU_PX } from '../physics/constants'
 import type { Vec2 } from '../physics/types'
 
-const AU_PX_THRESHOLD = MOON_RENDER_THRESHOLD_AU_PX
-
 // Deterministic starfield: seed-based positions generated once
 const STARS: [number, number, number][] = (() => {
   const s: [number, number, number][] = []
@@ -13,6 +11,12 @@ const STARS: [number, number, number][] = (() => {
   for (let i = 0; i < 280; i++) s.push([rand(), rand(), rand() * 1.4 + 0.4])
   return s
 })()
+
+// Module-level gravity field canvas cache to avoid re-allocating each frame
+let _gravOffscreen: OffscreenCanvas | null = null
+let _gravOffCtx: OffscreenCanvasRenderingContext2D | null = null
+let _gravCols = 0
+let _gravRows = 0
 
 export interface RenderOptions {
   selectedId: string | null
@@ -23,6 +27,7 @@ export interface RenderOptions {
   selectedColor: string
   explosions: Explosion[]
   nowMs: number
+  showGravityField: boolean
   // Ghost body during add-drag
   ghostWorldPos: { x: number; y: number } | null
   ghostScreenDrag: { x: number; y: number } | null // current mouse screen pos
@@ -41,6 +46,11 @@ export function renderFrame(
   ctx.fillStyle = '#030712'
   ctx.fillRect(0, 0, w, h)
 
+  // Gravity field heatmap (drawn before starfield so stars show through)
+  if (opts.showGravityField) {
+    drawGravityField(ctx, bodies, cam, w, h)
+  }
+
   // Starfield (fixed to screen, not world)
   for (const [fx, fy, r] of STARS) {
     ctx.beginPath()
@@ -56,17 +66,17 @@ export function renderFrame(
     drawPredictedOrbit(ctx, opts.predictedOrbit, cam, w, h, opts.selectedColor)
   }
 
-  // Draw trails (behind bodies)
+  // Draw trails (behind bodies); moons only when zoomed in enough
   for (const b of bodies) {
     if (b.ejected) continue
-    if (b.id === 'moon' && auPerPx > AU_PX_THRESHOLD) continue
+    if (b.isMoon && auPerPx > MOON_RENDER_THRESHOLD_AU_PX) continue
     drawTrail(ctx, b, cam, w, h)
   }
 
   // Draw bodies
   for (const b of bodies) {
     if (b.ejected) continue
-    if (b.id === 'moon' && auPerPx > AU_PX_THRESHOLD) continue
+    if (b.isMoon && auPerPx > MOON_RENDER_THRESHOLD_AU_PX) continue
     drawBody(ctx, b, cam, w, h, opts.selectedId, opts.showVelocityArrows)
   }
 
@@ -125,6 +135,96 @@ export function renderFrame(
   ctx.fillText('Click any planet to edit  ·  Scroll to zoom  ·  Drag to pan  ·  Double-click to focus', w - 14, h - 12)
 }
 
+// ─── Gravity field heatmap ────────────────────────────────────────────────────
+// Renders a blue→cyan→orange→red→white glow proportional to log(gravity).
+// Uses a downsampled grid (every GRID pixels) drawn onto an OffscreenCanvas
+// then scaled up to avoid O(w*h) pixel writes.
+
+const G_VAL = 4 * Math.PI * Math.PI  // G in AU/M☉/yr units
+const G_REF = 0.1                     // Reference acceleration — 0.1 AU/yr² ≈ 1/400 Earth orbital
+
+function gravColor(t: number): [number, number, number, number] {
+  // Ramp: 0=transparent space, 0.3=blue, 0.55=cyan, 0.75=orange, 0.9=red, 1.0=white-hot
+  if (t <= 0) return [0, 0, 0, 0]
+  if (t < 0.3) {
+    const s = t / 0.3
+    return [0, Math.round(20 * s), Math.round(120 * s), Math.round(80 * s)]
+  }
+  if (t < 0.55) {
+    const s = (t - 0.3) / 0.25
+    return [0, Math.round(20 + 100 * s), Math.round(120 - 40 * s), Math.round(80 + 60 * s)]
+  }
+  if (t < 0.75) {
+    const s = (t - 0.55) / 0.2
+    return [Math.round(200 * s), Math.round(120 - 80 * s), 0, Math.round(140 + 20 * s)]
+  }
+  if (t < 0.9) {
+    const s = (t - 0.75) / 0.15
+    return [Math.round(200 + 55 * s), Math.round(40 - 40 * s), 0, Math.round(160 + 20 * s)]
+  }
+  const s = Math.min(1, (t - 0.9) / 0.1)
+  return [255, Math.round(60 + 180 * s), Math.round(180 * s), Math.round(180 + 20 * s)]
+}
+
+function drawGravityField(
+  ctx: CanvasRenderingContext2D,
+  bodies: Body[],
+  cam: Camera,
+  w: number,
+  h: number,
+) {
+  const GRID = 8
+  const cols = Math.ceil(w / GRID)
+  const rows = Math.ceil(h / GRID)
+
+  // Reuse OffscreenCanvas if size unchanged
+  if (!_gravOffscreen || _gravCols !== cols || _gravRows !== rows) {
+    _gravOffscreen = new OffscreenCanvas(cols, rows)
+    _gravOffCtx = _gravOffscreen.getContext('2d')!
+    _gravCols = cols
+    _gravRows = rows
+  }
+
+  const activeBodies = bodies.filter(b => !b.ejected)
+  const imgData = _gravOffCtx!.createImageData(cols, rows)
+  const px = imgData.data
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      // Center of this grid cell in screen coords → world coords
+      const sx = col * GRID + GRID / 2
+      const sy = row * GRID + GRID / 2
+      const wx = cam.x + (sx - w / 2) / cam.scale
+      const wy = cam.y - (sy - h / 2) / cam.scale
+
+      // Sum gravitational acceleration magnitude from all bodies
+      let gTotal = 0
+      for (const b of activeBodies) {
+        const dx = b.pos.x - wx
+        const dy = b.pos.y - wy
+        const distSq = dx * dx + dy * dy + 1e-8
+        gTotal += G_VAL * b.mass / distSq
+      }
+
+      // Log-normalize to [0,1] over 3 decades above G_REF
+      const t = Math.min(1, Math.log10(1 + gTotal / G_REF) / 3)
+      const [r, g, b, a] = gravColor(t)
+
+      const i = (row * cols + col) * 4
+      px[i] = r; px[i + 1] = g; px[i + 2] = b; px[i + 3] = a
+    }
+  }
+
+  _gravOffCtx!.putImageData(imgData, 0, 0)
+
+  // Scale up to canvas size with bilinear smoothing
+  ctx.save()
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(_gravOffscreen, 0, 0, w, h)
+  ctx.restore()
+}
+
 // ─── Draw a single body ───────────────────────────────────────────────────────
 
 function drawBody(
@@ -143,7 +243,6 @@ function drawBody(
 
   // Black hole: accretion disk behind body
   if (isBlackHole) {
-    // Outer accretion disk
     ctx.save()
     ctx.translate(sx, sy)
     ctx.rotate(0.3)
@@ -152,7 +251,6 @@ function drawBody(
     ctx.strokeStyle = 'rgba(255,140,20,0.65)'
     ctx.lineWidth = r * 1.1
     ctx.stroke()
-    // Hot inner ring
     ctx.beginPath()
     ctx.ellipse(0, 0, r * 1.35, r * 0.36, 0, 0, Math.PI * 2)
     ctx.strokeStyle = 'rgba(255,220,120,0.35)'

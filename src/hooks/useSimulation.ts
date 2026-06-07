@@ -25,10 +25,11 @@ export function useSimulation(canvasRef: React.RefObject<HTMLCanvasElement | nul
   const lastTimeRef   = useRef<number>(0)
   const pauseOnEventRef  = useRef(false)
   const selectedIdRef    = useRef<string | null>(null)
-  const showArrowsRef    = useRef(true)
-  const lastEventCountRef = useRef(0)
-  const frameCountRef    = useRef(0)
-  const explosionsRef    = useRef<Explosion[]>([])
+  const showArrowsRef      = useRef(true)
+  const showGravityFieldRef = useRef(false)
+  const lastEventCountRef  = useRef(0)
+  const frameCountRef      = useRef(0)
+  const explosionsRef      = useRef<Explosion[]>([])
 
   // Extra render options set by App (add-body ghost, etc.)
   const extraOptsRef = useRef<Partial<RenderOptions>>({})
@@ -39,12 +40,14 @@ export function useSimulation(canvasRef: React.RefObject<HTMLCanvasElement | nul
   const [events, setEvents] = useState<SimEvent[]>([])
   const [pauseOnEvent, setPauseOnEvent] = useState(false)
   const [simYear, setSimYear] = useState(0)
+  const [showGravityField, setShowGravityField] = useState(false)
   const [, forceRender] = useState(0)
 
   useEffect(() => { simRef.current.timeScale = TIME_SCALES[timeScaleIdx].value }, [timeScaleIdx])
   useEffect(() => { simRef.current.paused = paused }, [paused])
   useEffect(() => { pauseOnEventRef.current = pauseOnEvent }, [pauseOnEvent])
   useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
+  useEffect(() => { showGravityFieldRef.current = showGravityField }, [showGravityField])
 
   const loop = useCallback((now: number) => {
     const canvas = canvasRef.current
@@ -113,6 +116,7 @@ export function useSimulation(canvasRef: React.RefObject<HTMLCanvasElement | nul
       selectedColor,
       explosions: explosionsRef.current,
       nowMs: now,
+      showGravityField: showGravityFieldRef.current,
       ghostWorldPos: extraOptsRef.current.ghostWorldPos ?? null,
       ghostScreenDrag: extraOptsRef.current.ghostScreenDrag ?? null,
     })
@@ -192,6 +196,8 @@ export function useSimulation(canvasRef: React.RefObject<HTMLCanvasElement | nul
     extraOptsRef.current = opts
   }, [])
 
+  const toggleGravityField = useCallback(() => setShowGravityField(v => !v), [])
+
   return {
     simRef, camRef,
     paused, setPaused,
@@ -200,6 +206,7 @@ export function useSimulation(canvasRef: React.RefObject<HTMLCanvasElement | nul
     events,
     pauseOnEvent, setPauseOnEvent,
     simYear,
+    showGravityField, toggleGravityField,
     onWheel, reset, fitView, zoomTo,
     modifyBody, removeBody, addBody,
     setExtraRenderOpts,

@@ -1,4 +1,4 @@
-import { Body, BodyPresetKey } from '../physics/types'
+import { Body, BodyPresetKey, Vec2 } from '../physics/types'
 
 // ─── Body presets for the "Add body" type picker ─────────────────────────────
 
@@ -18,7 +18,7 @@ export const BODY_PRESETS: Record<BodyPresetKey, Omit<Body, 'id' | 'pos' | 'vel'
     radius: 0.005, isStarOrMassive: true, bodyType: 'star',
   },
   black_hole: {
-    name: 'Black Hole', mass: 10, visualRadius: 14, color: '#111111',
+    name: 'Black Hole', mass: 3, visualRadius: 14, color: '#111111',
     radius: 0.006, isStarOrMassive: true, bodyType: 'black_hole',
   },
   comet: {
@@ -93,10 +93,8 @@ export function makeSolarSystemBodies(): Body[] {
       radius: 0.0003, visualRadius: 7, color: '#4fa3e0', isStarOrMassive: false,
       ejected: false, trail: [], trailHead: 0, trailLen: 0 },
     (() => {
-      // Moon orbits Earth; place it perpendicular to Earth's velocity
       const earth = orbit(1.0, 100)
       const moonDist = 0.00257
-      // Perpendicular to Earth's position vector = radial offset + Moon orbital vel
       const θ = (100 * Math.PI) / 180
       const moonOrbSpeed = 0.2154
       return {
@@ -104,7 +102,8 @@ export function makeSolarSystemBodies(): Body[] {
         pos: { x: earth.pos.x + moonDist * Math.cos(θ + Math.PI / 2), y: earth.pos.y + moonDist * Math.sin(θ + Math.PI / 2) },
         vel: { x: earth.vel.x + moonOrbSpeed * Math.cos(θ + Math.PI), y: earth.vel.y + moonOrbSpeed * Math.sin(θ + Math.PI) },
         radius: 0.00004, visualRadius: 3, color: '#cccccc', isStarOrMassive: false,
-        ejected: false, trail: [] as { x: number; y: number }[], trailHead: 0, trailLen: 0,
+        ejected: false, trail: [] as Vec2[], trailHead: 0, trailLen: 0,
+        isMoon: true, parentId: 'earth', orbitAU: moonDist,
       }
     })(),
     { id: 'mars', name: 'Mars', mass: 3.213e-7, ...orbit(1.524, 355),
@@ -136,7 +135,53 @@ export function makeSolarSystemBodies(): Body[] {
       ejected: false, trail: [], trailHead: 0, trailLen: 0 },
   ]
 
-  return bodies
+  // Helper: place a moon in circular orbit around a parent body.
+  // v = 2π√(M_parent / r) in our units where G = 4π²
+  function moonBody(
+    parent: Body,
+    id: string, name: string, mass: number,
+    orbitAU: number, angleDeg: number,
+    visualRadius: number, color: string,
+    retrograde = false,
+  ): Body {
+    const θ = (angleDeg * Math.PI) / 180
+    const speed = 2 * Math.PI * Math.sqrt(parent.mass / orbitAU)
+    const dir = retrograde ? -1 : 1
+    return {
+      id, name, mass, orbitAU,
+      pos: { x: parent.pos.x + orbitAU * Math.cos(θ), y: parent.pos.y + orbitAU * Math.sin(θ) },
+      vel: { x: parent.vel.x - dir * speed * Math.sin(θ), y: parent.vel.y + dir * speed * Math.cos(θ) },
+      radius: 0.00003, visualRadius, color,
+      isStarOrMassive: false, ejected: false,
+      trail: [], trailHead: 0, trailLen: 0,
+      isMoon: true, parentId: parent.id,
+    }
+  }
+
+  const jupiter = bodies.find(b => b.id === 'jupiter')!
+  const saturn  = bodies.find(b => b.id === 'saturn')!
+  const uranus  = bodies.find(b => b.id === 'uranus')!
+  const neptune = bodies.find(b => b.id === 'neptune')!
+
+  const moons: Body[] = [
+    // Galilean moons of Jupiter
+    moonBody(jupiter, 'io',       'Io',       4.49e-8, 2.819e-3, 0,   3, '#e8d5a3'),
+    moonBody(jupiter, 'europa',   'Europa',   2.41e-8, 4.487e-3, 90,  3, '#c8b89a'),
+    moonBody(jupiter, 'ganymede', 'Ganymede', 7.45e-8, 7.155e-3, 180, 4, '#b0a090'),
+    moonBody(jupiter, 'callisto', 'Callisto', 5.41e-8, 1.258e-2, 270, 3, '#8a8075'),
+    // Saturn moons
+    moonBody(saturn, 'rhea',  'Rhea',  1.16e-9, 3.52e-3, 45,  2, '#d4ccc0'),
+    moonBody(saturn, 'titan', 'Titan', 6.76e-8, 8.167e-3, 135, 4, '#e8a830'),
+    // Uranus moons
+    moonBody(uranus, 'ariel',   'Ariel',   6.8e-10, 1.28e-3, 30,  2, '#aabbc8'),
+    moonBody(uranus, 'umbriel', 'Umbriel', 5.9e-10, 1.78e-3, 120, 2, '#888898'),
+    moonBody(uranus, 'titania', 'Titania', 1.77e-9, 2.91e-3, 210, 3, '#b0b8c0'),
+    moonBody(uranus, 'oberon',  'Oberon',  1.51e-9, 3.90e-3, 300, 2, '#a09898'),
+    // Neptune — Triton orbits retrograde
+    moonBody(neptune, 'triton', 'Triton', 1.08e-8, 2.37e-3, 60, 3, '#c8e0e8', true),
+  ]
+
+  return [...bodies, ...moons]
 }
 
 export type ScenarioId = 'default' | 'no-jupiter' | 'double-sun' | 'earth-at-mars' | 'rogue-planet' | 'sun-blackhole' | 'binary-star' | 'heavy-earth'

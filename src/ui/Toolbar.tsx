@@ -12,7 +12,7 @@ const PRESETS: { key: BodyPresetKey; icon: string; label: string; hint: string }
   { key: 'planet',    icon: '🌍', label: 'Planet',     hint: 'Earth-mass rocky body' },
   { key: 'gas_giant', icon: '⛽', label: 'Gas Giant',  hint: 'Jupiter-mass, strong gravity' },
   { key: 'star',      icon: '☀️', label: 'Star',       hint: '1 solar mass, glowing' },
-  { key: 'black_hole',icon: '◼', label: 'Black Hole', hint: '10× solar mass + accretion disk' },
+  { key: 'black_hole',icon: '◼', label: 'Black Hole', hint: '3× solar mass + accretion disk' },
   { key: 'comet',     icon: '☄️', label: 'Comet',      hint: 'Tiny, fast-moving' },
 ]
 

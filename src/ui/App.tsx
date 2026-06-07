@@ -221,7 +221,7 @@ export default function App() {
   const onDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current!.getBoundingClientRect()
     const hit = getBodyAt(e.clientX - rect.left, e.clientY - rect.top)
-    if (hit) sim.zoomTo(hit.pos.x, hit.pos.y, hit.id === 'moon' ? 40000 : 3000)
+    if (hit) sim.zoomTo(hit.pos.x, hit.pos.y, hit.isMoon ? 40000 : 3000)
   }, [getBodyAt, sim])
 
   // ─── Keyboard ──────────────────────────────────────────────────────────────
@@ -287,6 +287,8 @@ export default function App() {
         pauseOnEvent={sim.pauseOnEvent}
         onTogglePauseOnEvent={() => sim.setPauseOnEvent(p => !p)}
         onFitView={sim.fitView}
+        showGravityField={sim.showGravityField}
+        onToggleGravityField={sim.toggleGravityField}
       />
 
       {/* Canvas fills the full remaining space; inspector floats on top */}
@@ -323,7 +325,7 @@ export default function App() {
               onCircularOrbit={handleCircularOrbit}
               onRemove={() => sim.removeBody(selectedBody.id)}
               onClose={() => sim.setSelectedId(null)}
-              onZoomTo={() => sim.zoomTo(selectedBody.pos.x, selectedBody.pos.y, selectedBody.id === 'moon' ? 40000 : 3000)}
+              onZoomTo={() => sim.zoomTo(selectedBody.pos.x, selectedBody.pos.y, selectedBody.isMoon ? 40000 : 3000)}
             />
           </div>
         )}

@@ -9,6 +9,8 @@ interface Props {
   pauseOnEvent: boolean
   onTogglePauseOnEvent: () => void
   onFitView: () => void
+  showGravityField: boolean
+  onToggleGravityField: () => void
 }
 
 function formatYear(y: number): string {
@@ -20,7 +22,7 @@ function formatYear(y: number): string {
   return `${(y / 1e9).toFixed(3)}B yrs`
 }
 
-export function TimeControls({ paused, onTogglePause, timeScaleIdx, onTimeScale, simYear, pauseOnEvent, onTogglePauseOnEvent, onFitView }: Props) {
+export function TimeControls({ paused, onTogglePause, timeScaleIdx, onTimeScale, simYear, pauseOnEvent, onTogglePauseOnEvent, onFitView, showGravityField, onToggleGravityField }: Props) {
   return (
     <div className="flex items-center gap-3 px-4 py-2 bg-gray-950 border-b border-gray-800 select-none">
       {/* Play/Pause */}
@@ -66,6 +68,19 @@ export function TimeControls({ paused, onTogglePause, timeScaleIdx, onTimeScale,
         />
         Pause on event
       </label>
+
+      {/* Gravity field toggle */}
+      <button
+        onClick={onToggleGravityField}
+        title="Toggle gravity field heatmap — blue=weak, red=strong"
+        className={`px-2 py-1 rounded text-xs transition-colors ${
+          showGravityField
+            ? 'bg-indigo-600 text-white'
+            : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+        }`}
+      >
+        ⊞ Field
+      </button>
 
       {/* Fit view */}
       <button

@@ -36,21 +36,24 @@ export function detectEvents(bodies: Body[], time: number): SimEvent[] {
         continue
       }
 
-      // Close approach (within 3× collision distance), log once per encounter
-      const pairKey = `${a.id}-${b.id}`
-      const closeThresh = 3 * collisionDist
-      if (dist2 < closeThresh * closeThresh) {
-        if (!activeEncounters.has(pairKey)) {
-          activeEncounters.add(pairKey)
-          events.push({
-            type: 'close_approach',
-            time,
-            description: `Close approach: ${a.name} & ${b.name}`,
-            bodyIds: [a.id, b.id],
-          })
+      // Close approach (within 3× collision distance), log once per encounter.
+      // Skip moon pairs — moons pass near their parent/siblings every orbit.
+      if (!a.isMoon && !b.isMoon) {
+        const pairKey = `${a.id}-${b.id}`
+        const closeThresh = 3 * collisionDist
+        if (dist2 < closeThresh * closeThresh) {
+          if (!activeEncounters.has(pairKey)) {
+            activeEncounters.add(pairKey)
+            events.push({
+              type: 'close_approach',
+              time,
+              description: `Close approach: ${a.name} & ${b.name}`,
+              bodyIds: [a.id, b.id],
+            })
+          }
+        } else {
+          activeEncounters.delete(pairKey)
         }
-      } else {
-        activeEncounters.delete(pairKey)
       }
     }
   }

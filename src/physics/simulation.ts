@@ -26,17 +26,22 @@ export function createSimulation(initialBodies: Body[]): SimState {
   }
 }
 
-// Maximum safe timestep per sub-step — must be well below the Moon's orbital period
-// (Moon period ≈ 0.075 yr). 0.004 yr ≈ 1.5 days gives ~18 steps per Moon orbit.
-const MAX_DT_STEP = 0.004  // years
+// At high time scales (>100 yr/s = 100K×), freeze moon integration — their orbits
+// would take thousands of laps per real second and destabilize the integrator.
+const MOON_SKIP_THRESHOLD = 100  // yr/s
 
 export function stepSimulation(state: SimState, acc: Vec2[], dtReal: number, pauseOnEvent: boolean): { newAcc: Vec2[]; fired: boolean } {
   if (state.paused) return { newAcc: acc, fired: false }
 
+  const skipMoons = state.timeScale > MOON_SKIP_THRESHOLD
+  const areMoonsPresent = state.bodies.some(b => b.isMoon && !b.ejected)
+
+  // When moons are active, use a smaller max step to resolve their fast orbits.
+  // Io's period is 1.769 days = 0.00484 yr; 0.0005 yr gives ≥9 steps/orbit.
+  // At high speeds moons are frozen so we can use the coarser 0.004 yr step.
+  const MAX_DT_STEP = (areMoonsPresent && !skipMoons) ? 0.0005 : 0.004
+
   const dtSim = state.timeScale * dtReal        // years of simulation this frame
-  // Dynamically scale step count so dtStep never exceeds MAX_DT_STEP.
-  // At 1×–10K× this is 80 steps. At 1M× this reaches ~4000 steps — still
-  // fast (~0.3ms) for 12 bodies with O(N²) force calculation.
   const steps = Math.max(80, Math.ceil(dtSim / MAX_DT_STEP))
   const dtStep = dtSim / steps
 
@@ -47,13 +52,13 @@ export function stepSimulation(state: SimState, acc: Vec2[], dtReal: number, pau
   const trailInterval = Math.max(1, Math.floor(steps / 200))
 
   for (let s = 0; s < steps; s++) {
-    newAcc = leapfrogStep(state.bodies, newAcc, dtStep)
+    newAcc = leapfrogStep(state.bodies, newAcc, dtStep, skipMoons)
     state.time += dtStep
 
     // Sample trail at reduced rate to keep buffer useful
     if (s % trailInterval === 0) {
       for (const b of state.bodies) {
-        if (!b.ejected) pushTrail(b, b.pos.x, b.pos.y)
+        if (!b.ejected && !(skipMoons && b.isMoon)) pushTrail(b, b.pos.x, b.pos.y)
       }
     }
 

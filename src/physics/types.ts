@@ -20,6 +20,9 @@ export interface Body {
   ejected: boolean
   isStarOrMassive: boolean
   bodyType?: BodyPresetKey  // undefined = planet for backwards compat
+  isMoon?: boolean          // skip integration at very high time scales
+  parentId?: string         // e.g. 'jupiter' — used for rendering threshold
+  orbitAU?: number          // moon's orbital radius around parent (AU)
 }
 
 export interface SimEvent {

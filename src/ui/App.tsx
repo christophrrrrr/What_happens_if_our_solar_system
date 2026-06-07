@@ -7,11 +7,12 @@ import { EventLog } from './EventLog'
 import { screenToWorld, worldToScreen } from '../renderer/camera'
 import { Body, BodyPresetKey } from '../physics/types'
 import { getVelocityArrowTip, ARROW_SCALE } from '../renderer/canvas'
-import { ScenarioId, makeBodyFromPreset } from '../data/solar-system'
+import { makeBodyFromPreset } from '../data/solar-system'
+// ScenarioId no longer needed — toolbar only resets to default
 import { getOrbitalStats, circularOrbitVelocity } from '../physics/orbital'
 import { TRAIL_CAPACITY } from '../physics/constants'
 
-const CLICK_RADIUS_PX = 12
+const CLICK_RADIUS_PX = 18   // larger target makes small planets (Mercury, Mars, Moon) easy to click
 
 export default function App() {
   const canvasRef    = useRef<HTMLCanvasElement>(null)
@@ -247,8 +248,8 @@ export default function App() {
     : null
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
-  const handleReset = (id: ScenarioId) => {
-    sim.reset(id)
+  const handleReset = () => {
+    sim.reset('default')
     setOriginalMasses(new Map())
     setAddingBody(false)
     addPhaseRef.current = 'idle'
@@ -275,7 +276,7 @@ export default function App() {
         addingBody={addingBody}
         selectedPreset={selectedPreset}
         onToggleAddBody={handleToggleAddBody}
-        onSelectPreset={setSelectedPreset}
+        onSelectPreset={p => setSelectedPreset(p)}
       />
       <TimeControls
         paused={sim.paused}

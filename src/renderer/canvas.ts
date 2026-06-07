@@ -122,7 +122,7 @@ export function renderFrame(
   ctx.fillStyle = 'rgba(255,255,255,0.28)'
   ctx.textAlign = 'right'
   ctx.setLineDash([])
-  ctx.fillText('Scroll to zoom  ·  Drag to pan  ·  Double-click a planet to focus', w - 14, h - 12)
+  ctx.fillText('Click any planet to edit  ·  Scroll to zoom  ·  Drag to pan  ·  Double-click to focus', w - 14, h - 12)
 }
 
 // ─── Draw a single body ───────────────────────────────────────────────────────

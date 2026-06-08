@@ -2,8 +2,6 @@
 
 An interactive N-body solar system simulator that lets you run "what if?" scenarios directly in the browser — no install, no backend, just physics.
 
-**[Try it live →](whathappensifoursolarsystem.netlify.app)**
-
 ---
 
 ## What you can do

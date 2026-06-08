@@ -2,7 +2,7 @@
 
 An interactive N-body solar system simulator that lets you run "what if?" scenarios directly in the browser — no install, no backend, just physics.
 
-**[Try it live →](https://christophrrrrr.github.io/What_happens_if_our_solar_system)**
+**[Try it live →](whathappensifoursolarsystem.netlify.app)**
 
 ---
 
